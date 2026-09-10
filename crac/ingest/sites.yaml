@@ -1,0 +1,29 @@
+# The reef sites CRAC tracks. This file is the single source of truth for
+# which locations get pulled, classified, and displayed.
+#
+# Start with 3-5 sites. Add more once the pipeline is proven end to end.
+#
+# id:     stable slug; used as a primary key everywhere. Never change it.
+# lat/lon: decimal degrees. CRW is a 5km grid, so this is snapped to the
+#          nearest grid cell at fetch time.
+
+sites:
+  - id: great_barrier_north
+    name: Great Barrier Reef (Northern)
+    region: Coral Sea
+    lat: -14.67
+    lon: 145.45
+
+  - id: florida_keys
+    name: Florida Keys
+    region: Caribbean
+    lat: 24.70
+    lon: -81.00
+
+  - id: moorea
+    name: Moorea
+    region: French Polynesia
+    lat: -17.53
+    lon: -149.83
+
+  # TODO: add Palau, Chagos, or another Indian Ocean site for geographic spread.
