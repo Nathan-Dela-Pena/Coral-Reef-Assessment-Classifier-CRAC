@@ -1,0 +1,45 @@
+[project]
+name = "crac"
+version = "0.1.0"
+description = "Coral Reef Assessment Classifier - reef health classification and temporal tracking"
+requires-python = ">=3.11"
+
+# Kept deliberately small. Add a dependency only when the code that needs it exists.
+dependencies = [
+    "pyyaml",
+    "requests",
+    "pandas",
+    "duckdb",
+]
+
+[project.optional-dependencies]
+# Phase 2 only. Installing torch is slow; don't pull it in until you start training.
+model = [
+    "torch",
+    "torchvision",
+    "scikit-learn",
+]
+# Phase 4 only.
+api = [
+    "fastapi",
+    "uvicorn[standard]",
+]
+dev = [
+    "pytest",
+    "ruff",
+    "jupyter",
+    "matplotlib",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["crac*"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
