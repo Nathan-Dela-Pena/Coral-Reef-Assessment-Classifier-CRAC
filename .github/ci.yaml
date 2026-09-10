@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-template:
+    name: PR Template
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR description against template
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          # Sections the author must fill in. Optional sections are not checked.
+          REQUIRED_SECTIONS=(
+            "## Summary"
+            "## Why is this change necessary?"
+            "## Changes"
+            "## Testing"
+          )
+
+          # Placeholder prose shipped in .github/PULL_REQUEST_TEMPLATE.md. If any
+          # of these survive verbatim, the author didn't actually fill it in.
+          PLACEHOLDERS=(
+            "Brief overview of what this PR does"
+            "Describe the problem or motivation."
+            "Main changes introduced in this PR:"
+            "Step-by-step instructions for reviewers to verify the changes."
+          )
+
+          printf '%s\n' "$PR_BODY" > pr_body.txt
+
+          if [ ! -s pr_body.txt ] || [ -z "$(tr -d '[:space:]' < pr_body.txt)" ]; then
+            echo "::error::PR description is empty. Fill in the pull request template."
+            exit 1
+          fi
+
+          MISSING=0
+
+          for SECTION in "${REQUIRED_SECTIONS[@]}"; do
+            if ! grep -qxF "$SECTION" pr_body.txt; then
+              echo "::error::Missing section: $SECTION"
+              MISSING=1
+              continue
+            fi
+
+            # Body of this section: everything up to the next "## " heading,
+            # minus HTML comments, horizontal rules and whitespace.
+            CONTENT=$(
+              awk -v want="$SECTION" '
+                $0 == want { flag = 1; next }
+                /^## /     { flag = 0 }
+                flag       { print }
+              ' pr_body.txt \
+                | sed '/<!--/,/-->/d' \
+                | sed '/^---*$/d' \
+                | tr -d '[:space:]'
+            )
+
+            if [ -z "$CONTENT" ]; then
+              echo "::error::Section left empty: $SECTION"
+              MISSING=1
+            fi
+          done
+
+          for PLACEHOLDER in "${PLACEHOLDERS[@]}"; do
+            if grep -qF "$PLACEHOLDER" pr_body.txt; then
+              echo "::error::Template placeholder text left unedited: \"$PLACEHOLDER\""
+              MISSING=1
+            fi
+          done
+
+          if [ "$MISSING" -eq 1 ]; then
+            echo "::error::PR description does not satisfy .github/PULL_REQUEST_TEMPLATE.md"
+            exit 1
+          fi
+
+          echo "PR description satisfies the template."
