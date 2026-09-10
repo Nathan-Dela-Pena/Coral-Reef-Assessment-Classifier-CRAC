@@ -83,5 +83,3 @@ jobs:
           fi
 
           echo "PR description satisfies the template."
-
-test
