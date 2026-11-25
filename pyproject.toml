@@ -9,6 +9,7 @@ dependencies = [
     "pyyaml",
     "requests",
     "pandas",
+    "numpy",
     "duckdb",
 ]
 
@@ -18,17 +19,22 @@ model = [
     "torch",
     "torchvision",
     "scikit-learn",
+    "pillow",
+    "matplotlib",      # confusion-matrix plot written next to the weights
 ]
 # Phase 4 only.
 api = [
     "fastapi",
     "uvicorn[standard]",
+    "python-multipart",  # required by FastAPI for the /classify file upload
+    "pillow",
 ]
 dev = [
     "pytest",
     "ruff",
     "jupyter",
     "matplotlib",
+    "pillow",
 ]
 
 [build-system]
@@ -40,6 +46,14 @@ include = ["crac*"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# Pinned explicitly so CI does not drift with ruff's default rule set.
+select = ["E", "F", "W", "I", "B", "UP", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI's dependency injection requires calls in argument defaults.
+"crac/api/main.py" = ["B008"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

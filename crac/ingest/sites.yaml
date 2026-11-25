@@ -26,4 +26,14 @@ sites:
     lat: -17.53
     lon: -149.83
 
-  # TODO: add Palau, Chagos, or another Indian Ocean site for geographic spread.
+  - id: palau
+    name: Palau (Rock Islands)
+    region: Western Pacific
+    lat: 7.30
+    lon: 134.45
+
+  - id: chagos
+    name: Chagos Archipelago
+    region: Indian Ocean
+    lat: -6.20
+    lon: 71.35
