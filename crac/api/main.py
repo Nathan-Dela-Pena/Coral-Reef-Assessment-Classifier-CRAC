@@ -25,9 +25,13 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
+import threading
+import time
+from collections import deque
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -48,6 +52,73 @@ app.add_middleware(
 
 DASHBOARD_DIR = config.PROJECT_ROOT / "dashboard" / "src"
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+
+# Rate limit for /classify. The read endpoints are cheap table reads and are left
+# alone; /classify runs a CNN forward pass, which is the only thing here expensive
+# enough for a crawler to turn into a hosting bill. Override per deployment with
+# CRAC_CLASSIFY_RATE / CRAC_CLASSIFY_WINDOW.
+CLASSIFY_RATE = int(os.environ.get("CRAC_CLASSIFY_RATE", "20"))
+CLASSIFY_WINDOW = float(os.environ.get("CRAC_CLASSIFY_WINDOW", "60"))
+
+
+class SlidingWindowLimiter:
+    """Per-client sliding window, in process memory.
+
+    Deliberately dependency-free: slowapi would pull in limits+redis to solve a
+    problem one deque per caller already solves at this scale.
+
+    The limit is per worker process, not global. Two uvicorn workers, or two
+    Cloud Run instances, each allow the full rate -- so this is a brake on
+    casual abuse and runaway cost, not an authorization boundary. A real one
+    needs shared state (Redis) or an edge limiter in front of the service.
+    """
+
+    def __init__(self, rate: int, window: float):
+        self.rate = rate
+        self.window = window
+        self._hits: dict[str, deque] = {}
+        self._lock = threading.Lock()
+
+    def check(self, key: str) -> float:
+        """Return 0.0 if the call is allowed, else seconds until it would be."""
+        now = time.monotonic()
+        with self._lock:
+            hits = self._hits.setdefault(key, deque())
+            cutoff = now - self.window
+            while hits and hits[0] <= cutoff:
+                hits.popleft()
+            if len(hits) >= self.rate:
+                return hits[0] + self.window - now
+            hits.append(now)
+
+            # Drop idle callers so a long-running process does not accumulate a
+            # deque per IP it has ever seen.
+            if len(self._hits) > 1024:
+                for k in [k for k, v in self._hits.items() if not v or v[-1] <= cutoff]:
+                    del self._hits[k]
+            return 0.0
+
+
+_classify_limiter = SlidingWindowLimiter(CLASSIFY_RATE, CLASSIFY_WINDOW)
+
+
+def rate_limit_classify(request: Request):
+    """429 when a caller exceeds the /classify budget.
+
+    Behind a proxy (Cloud Run, HF Spaces) request.client.host is the proxy, so
+    prefer the first hop in X-Forwarded-For. That header is caller-controlled and
+    trivially spoofed -- acceptable for cost control, not for anything stronger.
+    """
+    forwarded = request.headers.get("x-forwarded-for", "")
+    client = forwarded.split(",")[0].strip() or (request.client.host if request.client else "-")
+    retry_after = _classify_limiter.check(client)
+    if retry_after > 0:
+        raise HTTPException(
+            429,
+            f"rate limit: {CLASSIFY_RATE} classifications per "
+            f"{int(CLASSIFY_WINDOW)}s. Try again in {retry_after:.0f}s.",
+            headers={"Retry-After": str(max(1, int(retry_after + 0.5)))},
+        )
 
 _predictor = None
 _predictor_error = None
@@ -196,7 +267,10 @@ def model_info():
 
 
 @app.post("/classify")
-async def classify(file: UploadFile = File(...)):
+async def classify(
+    file: UploadFile = File(...),
+    _: None = Depends(rate_limit_classify),
+):
     """Classify one uploaded reef image. Returns the label, confidence and the
     full probability vector -- the UI shows all four so a 40/35 split can never
     be read as a confident call.
